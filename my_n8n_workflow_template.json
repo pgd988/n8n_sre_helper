@@ -24,7 +24,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are an expert SRE and DevOps assistant. An alert has fired and the alert data is provided in the input. Follow this exact workflow:\n1. Parse all the fields of the incoming alert from the input payload.\n2. Use the **GitHubRunbookFetcher** to request the relevant runbook for the alert. Provide the exact service name (e.g., 'frontend-app') to fetch the markdown runbook.\n3. Use the **PrometheusQuery** or **GraylogSearch** tools to pull metrics and logs to investigate the root cause.\n4. Check cluster/container status via the **KubernetesAPI**, **DockerComposeSSH**, or **NginxSSH** tools. For Kubernetes, provide the REST API path (e.g., '/api/v1/pods').\n5. If it is a minor issue (e.g., restarting a stuck pod or container), execute the fix using the relevant restricted tools. For Kubernetes, use **KubernetesPodRestarter**. CRITICAL: If you need to restart multiple pods, you MUST delete them strictly ONE BY ONE. After deleting a pod, you MUST use the **KubernetesAPI** tool to verify the replacement pod is 'Running' and 'Ready' before deleting the next pod. NEVER delete multiple pods simultaneously.\n6. If it is a major issue (e.g., node failure, persistent high latency), immediately summarize the investigation and use the **SlackEscalation** tool to alert a human.\n7. After taking action, generate a short final report summarizing the alert, your investigation, and any fixes applied or escalations made. This final report will be sent directly to the dedicated Slack channel.",
+        "text": "You are an expert SRE and DevOps assistant. An alert has fired and the alert data is provided in the input. Follow this exact workflow:\n1. Parse all the fields of the incoming alert from the input payload.\n2. Use the **GitHubRunbookSearcher** to find the exact file path of the relevant runbook by service name. Once you get the file path, use the **GitHubRunbookReader** to retrieve the markdown content.\n3. Use the **PrometheusQuery** or **GraylogSearch** tools to pull metrics and logs to investigate the root cause.\n4. Check cluster/container status via the **KubernetesAPI**, **DockerComposeSSH**, or **NginxSSH** tools. For Kubernetes, provide the REST API path (e.g., '/api/v1/pods').\n5. If it is a minor issue (e.g., restarting a stuck pod or container), execute the fix using the relevant restricted tools. For Kubernetes, use **KubernetesPodRestarter**. CRITICAL: If you need to restart multiple pods, you MUST delete them strictly ONE BY ONE. After deleting a pod, you MUST use the **KubernetesAPI** tool to verify the replacement pod is 'Running' and 'Ready' before deleting the next pod. NEVER delete multiple pods simultaneously.\n6. If it is a major issue (e.g., node failure, persistent high latency), immediately summarize the investigation and use the **SlackEscalation** tool to alert a human.\n7. After taking action, generate a short final report summarizing the alert, your investigation, and any fixes applied or escalations made. This final report will be sent directly to the dedicated Slack channel.",
         "options": {
           "systemMessage": "You are an intelligent SRE Agent. Always verify commands before executing them on infrastructure."
         }
@@ -81,10 +81,31 @@
     },
     {
       "parameters": {
-        "name": "GitHubRunbookFetcher",
-        "description": "Call this to get the content of a runbook markdown file from GitHub. Input should be the runbook filename without extension (e.g., 'auth-service').",
+        "name": "GitHubRunbookSearcher",
+        "description": "Searches the GitHub repository for runbooks. Input should be a search term (e.g., service name). Returns a list of matching file paths.",
         "method": "GET",
-        "url": "https://api.github.com/repos/{{$vars.GITHUB_RUNBOOK_REPO}}/contents/runbooks/{{$fromAI('runbook_name')}}.md",
+        "url": "https://api.github.com/search/code?q={{$fromAI('search_term')}}+repo:{{$vars.GITHUB_RUNBOOK_REPO}}+extension:md",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{$vars.GITHUB_TOKEN}}" },
+            { "name": "Accept", "value": "application/vnd.github.v3+json" },
+            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+          ]
+        }
+      },
+      "id": "tool-github-search",
+      "name": "GitHub Runbook Searcher",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [600, -100]
+    },
+    {
+      "parameters": {
+        "name": "GitHubRunbookReader",
+        "description": "Reads the raw content of a markdown runbook. Input must be the exact file path obtained from GitHubRunbookSearcher (e.g., 'docs/services/auth.md').",
+        "method": "GET",
+        "url": "https://api.github.com/repos/{{$vars.GITHUB_RUNBOOK_REPO}}/contents/{{$fromAI('file_path')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -94,11 +115,11 @@
           ]
         }
       },
-      "id": "tool-github-runbook",
-      "name": "GitHub Runbook Fetcher",
+      "id": "tool-github-read",
+      "name": "GitHub Runbook Reader",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [600, -100]
+      "position": [600, -25]
     },
     {
       "parameters": {
@@ -282,7 +303,18 @@
         ]
       ]
     },
-    "GitHub Runbook Fetcher": {
+    "GitHub Runbook Searcher": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub Runbook Reader": {
       "ai_tool": [
         [
           {

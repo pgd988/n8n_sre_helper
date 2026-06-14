@@ -1,0 +1,22 @@
+# Mac system files
+.DS_Store
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables and secrets
+.env
+*.pem
+*.key
+*.cert
+*.crt
+
+# n8n local data (if running n8n locally from this directory)
+.n8n/
+node_modules/
+
+# Log files
+*.log

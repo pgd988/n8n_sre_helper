@@ -1,0 +1,98 @@
+# n8n SRE Helper Agent
+
+This project contains an autonomous n8n workflow designed to act as an intelligent Site Reliability Engineering (SRE) assistant. It accepts alerts via Slack, automatically parses them, looks up related Runbooks in GitHub, queries Prometheus and Graylog for telemetry, and executes safe, read-only/restart infrastructure commands to diagnose or fix minor issues. Major issues are escalated to a human.
+
+## 📦 Files Included
+- **`my_n8n_workflow_template.json`**: The main Agent Orchestrator workflow.
+- **`ssh_execution_subworkflow.json`**: A secure sub-workflow that enforces strict infrastructure access rules (regex validation) before executing SSH commands.
+
+---
+
+## 🚀 1. Importing the Workflows
+
+Due to the security boundaries of this architecture, the infrastructure execution is decoupled from the main AI agent. You must import both workflows into your n8n UI.
+
+### Step 1: Import the SSH Sub-Workflow
+1. In your n8n UI, navigate to **Workflows** and click **Add Workflow**.
+2. Click the menu (three dots) in the top right corner and select **Import from File...**
+3. Select `ssh_execution_subworkflow.json`.
+4. **Attach Credentials**: Double-click the `SSH` node and attach your SSH credentials (e.g., Private Key or Password) using the n8n Credential Manager.
+5. Click **Save** in the top right corner.
+6. Look at the URL in your browser. It will look like `https://n8n.yourdomain.com/workflow/abcdef123456`. Copy the ID part at the end (e.g., `abcdef123456`). You will need this.
+
+### Step 2: Import the Main Agent Workflow
+1. Create another new workflow and click **Import from File...**
+2. Select `my_n8n_workflow_template.json`.
+3. Locate the two green SSH Tool nodes attached to the AI Agent (`Docker Compose SSH`, `NGINX SSH`).
+4. Double-click each one of them. Find the **Workflow ID** field and paste the ID you copied from the Sub-Workflow in Step 1.
+5. Save the workflow.
+
+---
+
+## ⚙️ 2. Configuring Global Variables
+
+This workflow is securely configured using **n8n Global Variables** instead of `.env` files. This means you do not need to modify your Docker configuration or pass files to your container.
+
+### How to set them up:
+1. In the left-hand navigation menu of the n8n UI, click on **Settings**.
+2. Go to the **Variables** tab.
+3. Click **Add Variable** for each of the following keys.
+
+### Required Variables list:
+
+| Variable Name | Description | Example Value |
+| --- | --- | --- |
+| `OLLAMA_MODEL` | The LLM model you want Ollama to run. | `llama3` |
+| `OLLAMA_BASE_URL` | The HTTP URL where your Ollama server is hosted. | `http://host.docker.internal:11434` |
+| `PROMETHEUS_URL` | The root URL for your Prometheus instance. | `http://prometheus:9090` |
+| `GRAYLOG_URL` | The root API URL for your Graylog instance. | `https://graylog.example.com/api` |
+| `GRAYLOG_API_TOKEN` | Your Graylog personal access token for REST API access. | `token_1234abcd` |
+| `K8S_API_URL` | The root URL for your Kubernetes API server. | `https://kubernetes.default.svc` |
+| `K8S_SERVICE_ACCOUNT_TOKEN` | The Bearer token for a Kubernetes ServiceAccount with read-only access. | `ey...` |
+| `GITHUB_RUNBOOK_REPO` | The GitHub repository in owner/repo format containing your runbooks. | `my-org/sre-runbooks` |
+| `GITHUB_TOKEN` | A GitHub Personal Access Token to access the repository. | `ghp_...` |
+| `SLACK_ESCALATION_WEBHOOK_URL` | The Slack incoming webhook URL used for escalating critical, unfixed issues to humans. | `https://hooks.slack.com/services/...` |
+| `SLACK_REPORT_CHANNEL` | The dedicated Slack channel where the agent will post its final summary report after every iteration. | `#sre-alerts-log` |
+
+Once these variables are saved in the UI, the workflow's `{{$vars.VARIABLE_NAME}}` expressions will automatically pull them in at execution time!
+
+---
+
+## 🔐 3. Kubernetes Certificate Authority (CA)
+
+Because Kubernetes API servers use internally-signed TLS certificates by default, n8n will reject the connection to the API unless it trusts your cluster's CA.
+
+To securely connect n8n to your cluster without ignoring SSL validation, you must provide the CA certificate to the n8n container:
+
+1. Mount your cluster's `ca.crt` file into the n8n container. If n8n runs inside a Kubernetes pod, this is usually available automatically at `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`.
+2. Set the `NODE_EXTRA_CA_CERTS` environment variable in your n8n container configuration to point to that file.
+
+**Example `docker-compose.yml` configuration:**
+```yaml
+environment:
+  - NODE_EXTRA_CA_CERTS=/path/to/k8s-ca.crt
+```
+
+---
+
+## 🛡️ 4. Kubernetes ServiceAccount Setup
+
+If you need to configure access for n8n in your Kubernetes cluster, we have provided manifests in the `kubernetes/` directory. These manifests create a highly restricted ServiceAccount (`n8n-ro-sa`) specifically designed for this agent.
+
+It ensures that the agent:
+- Has **Read-Only** access to standard resources (pods, events, logs, deployments, services, etc.).
+- Has **No access** to `secrets`.
+- Has **No rights** to delete or modify `deployments`, `services`, `statefulsets`, `daemonsets`, or any other workload controllers.
+- Has **ONLY** the right to delete `pods` (which is the safe Kubernetes method for restarting a stuck pod without altering its configuration).
+
+### Setup Instructions
+
+1. Apply the manifests to your cluster:
+   ```bash
+   kubectl apply -f kubernetes/
+   ```
+2. Generate a long-lived bearer token for the ServiceAccount:
+   ```bash
+   kubectl create token n8n-ro-sa -n default --duration=8760h
+   ```
+3. Copy the output token and paste it into the `K8S_SERVICE_ACCOUNT_TOKEN` variable in your n8n settings.

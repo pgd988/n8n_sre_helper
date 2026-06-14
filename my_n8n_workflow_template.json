@@ -1,0 +1,374 @@
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Manual Trigger (Alert)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-alert-webhook",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Webhook (Slack Alert)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 150]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are an expert SRE and DevOps assistant. An alert has fired and the alert data is provided in the input. Follow this exact workflow:\n1. Parse all the fields of the incoming alert from the input payload.\n2. Use the **GitHubRunbookFetcher** to request the relevant runbook for the alert. Provide the exact service name (e.g., 'frontend-app') to fetch the markdown runbook.\n3. Use the **PrometheusQuery** or **GraylogSearch** tools to pull metrics and logs to investigate the root cause.\n4. Check cluster/container status via the **KubernetesAPI**, **DockerComposeSSH**, or **NginxSSH** tools. For Kubernetes, provide the REST API path (e.g., '/api/v1/pods').\n5. If it is a minor issue (e.g., restarting a stuck pod or container), execute the fix using the relevant restricted tools. For Kubernetes, use **KubernetesPodRestarter**. CRITICAL: If you need to restart multiple pods, you MUST delete them strictly ONE BY ONE. After deleting a pod, you MUST use the **KubernetesAPI** tool to verify the replacement pod is 'Running' and 'Ready' before deleting the next pod. NEVER delete multiple pods simultaneously.\n6. If it is a major issue (e.g., node failure, persistent high latency), immediately summarize the investigation and use the **SlackEscalation** tool to alert a human.\n7. After taking action, generate a short final report summarizing the alert, your investigation, and any fixes applied or escalations made. This final report will be sent directly to the dedicated Slack channel.",
+        "options": {
+          "systemMessage": "You are an intelligent SRE Agent. Always verify commands before executing them on infrastructure."
+        }
+      },
+      "id": "agent-orchestrator",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [250, 0]
+    },
+    {
+      "parameters": {
+        "model": "={{$vars.OLLAMA_MODEL}}",
+        "options": {
+          "temperature": 0.1,
+          "baseUrl": "={{$vars.OLLAMA_BASE_URL}}"
+        }
+      },
+      "id": "model-ollama",
+      "name": "Ollama Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [250, 250]
+    },
+    {
+      "parameters": {},
+      "id": "memory-buffer",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [400, 250]
+    },
+    {
+      "parameters": {
+        "name": "PrometheusQuery",
+        "description": "Call this to query Prometheus for metric data. Input should be a valid PromQL query string.",
+        "method": "GET",
+        "url": "={{$vars.PROMETHEUS_URL}}/api/v1/query",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{$fromAI('query')}}"
+            }
+          ]
+        }
+      },
+      "id": "tool-prometheus",
+      "name": "Prometheus Request",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [600, -250]
+    },
+    {
+      "parameters": {
+        "name": "GitHubRunbookFetcher",
+        "description": "Call this to get the content of a runbook markdown file from GitHub. Input should be the runbook filename without extension (e.g., 'auth-service').",
+        "method": "GET",
+        "url": "https://api.github.com/repos/{{$vars.GITHUB_RUNBOOK_REPO}}/contents/runbooks/{{$fromAI('runbook_name')}}.md",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{$vars.GITHUB_TOKEN}}" },
+            { "name": "Accept", "value": "application/vnd.github.v3.raw" },
+            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+          ]
+        }
+      },
+      "id": "tool-github-runbook",
+      "name": "GitHub Runbook Fetcher",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [600, -100]
+    },
+    {
+      "parameters": {
+        "name": "SlackEscalation",
+        "description": "Escalates major issues to a human. Input must be a detailed message explaining the alert, metrics found, and why it requires human intervention.",
+        "method": "POST",
+        "url": "={{$vars.SLACK_ESCALATION_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"text\": \"🚨 *SRE AI Escalation* 🚨\\n{{$fromAI('message')}}\"}"
+      },
+      "id": "tool-slack",
+      "name": "Slack Webhook",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [600, 50]
+    },
+    {
+      "parameters": {
+        "name": "DockerComposeSSH",
+        "description": "Executes docker-compose commands via SSH. Allowed actions: ps, logs, top, restart. Pass the exact command string.",
+        "workflowId": "REPLACE_WITH_YOUR_SUBWORKFLOW_ID"
+      },
+      "id": "tool-docker",
+      "name": "Docker Compose SSH",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [600, 200]
+    },
+    {
+      "parameters": {
+        "name": "KubernetesAPI",
+        "description": "Queries the Kubernetes REST API for cluster state. Input must be a valid API path (e.g., '/api/v1/pods', '/api/v1/namespaces/default/events').",
+        "method": "GET",
+        "url": "={{$vars.K8S_API_URL}}{{$fromAI('api_path')}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{$vars.K8S_SERVICE_ACCOUNT_TOKEN}}" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "tool-kubectl",
+      "name": "Kubernetes API",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [600, 350]
+    },
+    {
+      "parameters": {
+        "name": "KubernetesPodRestarter",
+        "description": "Deletes a Kubernetes pod to trigger a restart. Input must be the exact API path to the pod (e.g., '/api/v1/namespaces/default/pods/my-pod-name').",
+        "method": "DELETE",
+        "url": "={{$vars.K8S_API_URL}}{{$fromAI('api_path')}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{$vars.K8S_SERVICE_ACCOUNT_TOKEN}}" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "tool-kubectl-delete",
+      "name": "Kubernetes Pod Restarter",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [600, 425]
+    },
+    {
+      "parameters": {
+        "name": "NginxSSH",
+        "description": "Executes NGINX management commands via SSH. Allowed: nginx -t, systemctl status/restart/reload nginx. Pass the exact command string.",
+        "workflowId": "REPLACE_WITH_YOUR_SUBWORKFLOW_ID"
+      },
+      "id": "tool-nginx",
+      "name": "NGINX SSH",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [600, 500]
+    },
+    {
+      "parameters": {
+        "name": "GraylogSearch",
+        "description": "Searches logs in Graylog. Input should be a valid search query string.",
+        "method": "GET",
+        "url": "={{$vars.GRAYLOG_URL}}/search/universal/relative",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{$vars.GRAYLOG_API_TOKEN}}" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "query", "value": "={{$fromAI('query')}}" },
+            { "name": "range", "value": "300" }
+          ]
+        }
+      },
+      "id": "tool-graylog",
+      "name": "Graylog Search",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [600, 650]
+    },
+    {
+      "parameters": {
+        "channel": "={{$vars.SLACK_REPORT_CHANNEL}}",
+        "text": "={{$json.output}}",
+        "otherOptions": {}
+      },
+      "id": "slack-report",
+      "name": "Send Report to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [850, 0],
+      "credentials": {
+        "slackApi": {
+          "id": "slack_credentials",
+          "name": "Slack API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Alert)": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Slack Alert)": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prometheus Request": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub Runbook Fetcher": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Webhook": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Docker Compose SSH": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kubernetes API": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kubernetes Pod Restarter": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NGINX SSH": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Graylog Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send Report to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: n8n-ro-clusterrole
+rules:
+  # Read-only access to core resources (EXPLICITLY EXCLUDING secrets)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints", "events", "configmaps", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  
+  # Read-only access to apps resources
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+
+  # Read-only access to batch resources
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+
+  # Permissions to restart individual pods (Kubernetes handles pod restarts by deleting the pod and letting the controller recreate it)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]

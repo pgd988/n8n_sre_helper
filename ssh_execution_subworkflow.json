@@ -1,0 +1,62 @@
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const command = $input.item.json.command || $input.item.json.query;\nif (!command) throw new Error('No command provided by the agent');\n\nconst isDocker = command.match(/^docker-compose\\s+(ps|logs|top|restart)/);\nconst isNginx = command.match(/^nginx\\s+-t/) || command.match(/^systemctl\\s+(status|restart|reload)\\s+nginx/);\n\nif (!isDocker && !isNginx) {\n  throw new Error('Security Error: Action not permitted by internal policies. Validated command failed.');\n}\n\nreturn { json: { command } };"
+      },
+      "id": "validation-code",
+      "name": "Validate Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "command": "={{$json.command}}"
+      },
+      "id": "ssh-node",
+      "name": "SSH",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [400, 0],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "YOUR_SSH_CREDENTIAL_ID",
+          "name": "SSH Private Key"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Command": {
+      "main": [
+        [
+          {
+            "node": "SSH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

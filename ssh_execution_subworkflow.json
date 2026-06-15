@@ -10,7 +10,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const command = $input.item.json.command || $input.item.json.query;\nif (!command) throw new Error('No command provided by the agent');\n\nconst isDocker = command.match(/^docker-compose\\s+(ps|logs|top|restart)/);\nconst isNginx = command.match(/^nginx\\s+-t/) || command.match(/^systemctl\\s+(status|restart|reload)\\s+nginx/);\n\nif (!isDocker && !isNginx) {\n  throw new Error('Security Error: Action not permitted by internal policies. Validated command failed.');\n}\n\nreturn { json: { command } };"
+        "jsCode": "const command = $input.item.json.command || $input.item.json.query;\nif (!command) throw new Error('No command provided by the agent');\n\nconst isDocker = command.match(/^docker-compose\\s+(ps|logs|top|restart)/);\nconst isNginx = command.match(/^nginx\\s+-t/) || command.match(/^systemctl\\s+(status|restart|reload)\\s+nginx/);\nconst isKubectl = command.match(/^kubectl\\s+(get|describe|logs|top|delete\\s+pod)\\b/);\n\nif (!isDocker && !isNginx && !isKubectl) {\n  throw new Error('Security Error: Action not permitted by internal policies. Validated command failed.');\n}\n\nreturn { json: { command } };"
       },
       "id": "validation-code",
       "name": "Validate Command",

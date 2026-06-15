@@ -24,7 +24,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are an expert SRE and DevOps assistant. An alert has fired and the alert data is provided in the input. Follow this exact workflow:\n1. Parse all the fields of the incoming alert from the input payload.\n2. Use the **GitHubRunbookSearcher** to find the exact file path of the relevant runbook by service name. Once you get the file path, use the **GitHubRunbookReader** to retrieve the markdown content.\n3. Use the **PrometheusQuery** or **GraylogSearch** tools to pull metrics and logs to investigate the root cause.\n4. Check cluster/container status via the **KubernetesAPI**, **DockerComposeSSH**, or **NginxSSH** tools. For Kubernetes, provide the REST API path (e.g., '/api/v1/pods').\n5. If it is a minor issue (e.g., restarting a stuck pod or container), execute the fix using the relevant restricted tools. For Kubernetes, use **KubernetesPodRestarter**. CRITICAL: If you need to restart multiple pods, you MUST delete them strictly ONE BY ONE. After deleting a pod, you MUST use the **KubernetesAPI** tool to verify the replacement pod is 'Running' and 'Ready' before deleting the next pod. NEVER delete multiple pods simultaneously.\n6. If it is a major issue (e.g., node failure, persistent high latency), immediately summarize the investigation and use the **SlackEscalation** tool to alert a human.\n7. After taking action, generate a short final report summarizing the alert, your investigation, and any fixes applied or escalations made. This final report will be sent directly to the dedicated Slack channel.",
+        "text": "You are an expert SRE and DevOps assistant. An alert has fired and the alert data is provided in the input. Follow this exact workflow:\n1. Parse all the fields of the incoming alert from the input payload.\n2. Use the **GitHubRunbookSearcher** to find the exact file path of the relevant runbook by service name. Once you get the file path, use the **GitHubRunbookReader** to retrieve the markdown content.\n3. Use the **PrometheusQuery** or **GraylogSearch** tools to pull metrics and logs to investigate the root cause.\n4. Check cluster/container status via the **KubernetesKubectl**, **DockerComposeSSH**, or **NginxSSH** tools. For Kubernetes, provide the exact kubectl command (e.g., 'kubectl get pods').\n5. If it is a minor issue (e.g., restarting a stuck pod or container), execute the fix using the relevant restricted tools. For Kubernetes, use **KubernetesKubectlDelete**. CRITICAL: If you need to restart multiple pods, you MUST delete them strictly ONE BY ONE. After deleting a pod, you MUST use the **KubernetesKubectl** tool to verify the replacement pod is 'Running' and 'Ready' before deleting the next pod. NEVER delete multiple pods simultaneously.\n6. If it is a major issue (e.g., node failure, persistent high latency), immediately summarize the investigation and use the **SlackEscalation** tool to alert a human.\n7. After taking action, generate a short final report summarizing the alert, your investigation, and any fixes applied or escalations made. This final report will be sent directly to the dedicated Slack channel.",
         "options": {
           "systemMessage": "You are an intelligent SRE Agent. Always verify commands before executing them on infrastructure."
         }
@@ -151,41 +151,25 @@
     },
     {
       "parameters": {
-        "name": "KubernetesAPI",
-        "description": "Queries the Kubernetes REST API for cluster state. Input must be a valid API path (e.g., '/api/v1/pods', '/api/v1/namespaces/default/events').",
-        "method": "GET",
-        "url": "={{$vars.K8S_API_URL}}{{$fromAI('api_path')}}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "Authorization", "value": "Bearer {{$vars.K8S_SERVICE_ACCOUNT_TOKEN}}" },
-            { "name": "Accept", "value": "application/json" }
-          ]
-        }
+        "name": "KubernetesKubectl",
+        "description": "Executes read-only kubectl commands via SSH. Allowed actions: get, describe, logs, top. Pass the exact command string.",
+        "workflowId": "REPLACE_WITH_YOUR_SUBWORKFLOW_ID"
       },
       "id": "tool-kubectl",
-      "name": "Kubernetes API",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "name": "Kubernetes Kubectl",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 1.1,
       "position": [600, 350]
     },
     {
       "parameters": {
-        "name": "KubernetesPodRestarter",
-        "description": "Deletes a Kubernetes pod to trigger a restart. Input must be the exact API path to the pod (e.g., '/api/v1/namespaces/default/pods/my-pod-name').",
-        "method": "DELETE",
-        "url": "={{$vars.K8S_API_URL}}{{$fromAI('api_path')}}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "Authorization", "value": "Bearer {{$vars.K8S_SERVICE_ACCOUNT_TOKEN}}" },
-            { "name": "Accept", "value": "application/json" }
-          ]
-        }
+        "name": "KubernetesKubectlDelete",
+        "description": "Executes kubectl delete pod commands via SSH. Pass the exact command string (e.g., 'kubectl delete pod my-pod-name -n default').",
+        "workflowId": "REPLACE_WITH_YOUR_SUBWORKFLOW_ID"
       },
       "id": "tool-kubectl-delete",
-      "name": "Kubernetes Pod Restarter",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "name": "Kubernetes Kubectl Delete",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 1.1,
       "position": [600, 425]
     },

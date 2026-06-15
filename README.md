@@ -23,7 +23,7 @@ Due to the security boundaries of this architecture, the infrastructure executio
 ### Step 2: Import the Main Agent Workflow
 1. Create another new workflow and click **Import from File...**
 2. Select `my_n8n_workflow_template.json`.
-3. Locate the two green SSH Tool nodes attached to the AI Agent (`Docker Compose SSH`, `NGINX SSH`).
+3. Locate the four green SSH Tool nodes attached to the AI Agent (`Docker Compose SSH`, `NGINX SSH`, `Kubernetes Kubectl`, `Kubernetes Kubectl Delete`).
 4. Double-click each one of them. Find the **Workflow ID** field and paste the ID you copied from the Sub-Workflow in Step 1.
 5. Save the workflow.
 
@@ -47,8 +47,7 @@ This workflow is securely configured using **n8n Global Variables** instead of `
 | `PROMETHEUS_URL` | The root URL for your Prometheus instance. | `http://prometheus:9090` |
 | `GRAYLOG_URL` | The root API URL for your Graylog instance. | `https://graylog.example.com/api` |
 | `GRAYLOG_API_TOKEN` | Your Graylog personal access token for REST API access. | `token_1234abcd` |
-| `K8S_API_URL` | The root URL for your Kubernetes API server. | `https://kubernetes.default.svc` |
-| `K8S_SERVICE_ACCOUNT_TOKEN` | The Bearer token for a Kubernetes ServiceAccount with read-only access. | `ey...` |
+
 | `GITHUB_RUNBOOK_REPO` | The GitHub repository in owner/repo format containing your runbooks. | `my-org/sre-runbooks` |
 | `GITHUB_TOKEN` | A GitHub Personal Access Token to access the repository. | `ghp_...` |
 | `SLACK_ESCALATION_WEBHOOK_URL` | The Slack incoming webhook URL used for escalating critical, unfixed issues to humans. | `https://hooks.slack.com/services/...` |
@@ -58,41 +57,15 @@ Once these variables are saved in the UI, the workflow's `{{$vars.VARIABLE_NAME}
 
 ---
 
-## 🔐 3. Kubernetes Certificate Authority (CA)
+## 🔐 3. Configuring `kubectl` on the SSH Jump Host
 
-Because Kubernetes API servers use internally-signed TLS certificates by default, n8n will reject the connection to the API unless it trusts your cluster's CA.
-
-To securely connect n8n to your cluster without ignoring SSL validation, you must provide the CA certificate to the n8n container:
-
-1. Mount your cluster's `ca.crt` file into the n8n container. If n8n runs inside a Kubernetes pod, this is usually available automatically at `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`.
-2. Set the `NODE_EXTRA_CA_CERTS` environment variable in your n8n container configuration to point to that file.
-
-**Example `docker-compose.yml` configuration:**
-```yaml
-environment:
-  - NODE_EXTRA_CA_CERTS=/path/to/k8s-ca.crt
-```
-
----
-
-## 🛡️ 4. Kubernetes ServiceAccount Setup
-
-If you need to configure access for n8n in your Kubernetes cluster, we have provided manifests in the `kubernetes/` directory. These manifests create a highly restricted ServiceAccount (`n8n-ro-sa`) specifically designed for this agent.
-
-It ensures that the agent:
-- Has **Read-Only** access to standard resources (pods, events, logs, deployments, services, etc.).
-- Has **No access** to `secrets`.
-- Has **No rights** to delete or modify `deployments`, `services`, `statefulsets`, `daemonsets`, or any other workload controllers.
-- Has **ONLY** the right to delete `pods` (which is the safe Kubernetes method for restarting a stuck pod without altering its configuration).
+Because the SRE Agent executes infrastructure commands via SSH, your n8n container does not need direct access or credentials to your Kubernetes cluster. Instead, the SSH Jump Host where the sub-workflow connects to must have `kubectl` installed and configured.
 
 ### Setup Instructions
 
-1. Apply the manifests to your cluster:
-   ```bash
-   kubectl apply -f kubernetes/
-   ```
-2. Generate a long-lived bearer token for the ServiceAccount:
-   ```bash
-   kubectl create token n8n-ro-sa -n default --duration=8760h
-   ```
-3. Copy the output token and paste it into the `K8S_SERVICE_ACCOUNT_TOKEN` variable in your n8n settings.
+1. **Install `kubectl`**: Ensure the `kubectl` binary is installed on the SSH jump host.
+2. **Configure Kubeconfig**: The SSH user that n8n logs in as must have a valid `~/.kube/config` file configured to access your remote Kubernetes cluster.
+   - If using cloud providers (AWS EKS, GCP GKE, Azure AKS), use their respective CLI tools (e.g., `aws eks update-kubeconfig`, `gcloud container clusters get-credentials`) to generate the `kubeconfig` for the SSH user.
+   - Alternatively, you can manually copy a valid `kubeconfig` file to `~/.kube/config` on the SSH host.
+3. **Set Context**: Ensure the default context in the `kubeconfig` is set to the cluster you want the AI agent to manage.
+4. **Permissions**: Ensure the credentials used in the `kubeconfig` have the necessary RBAC permissions on the cluster (e.g., viewing pods/logs and deleting pods). You can use the provided manifests in the `kubernetes/` directory to create a highly restricted ServiceAccount (`n8n-ro-sa`), then generate a token for it and embed it into the SSH host's `kubeconfig` as the authentication mechanism.
